@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>TM + WebUSB Arduino</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image"></script>
+</head>
+
+<body>
+
+<h2>Teachable Machine + Arduino (WebUSB)</h2>
+
+<button id="connect">Connect to Arduino</button>
+<button onclick="init()">Start Model</button>
+
+<div id="webcam-container"></div>
+<div id="label-container"></div>
+
+<script>
+const URL = "./my_model/";
+
+let model, webcam;
+let labelContainer, maxPredictions;
+
+// WebUSB variables
+let device;
+let writer;
+
+// Connect button event
+document.getElementById("connect").onclick = async () => {
+  device = await navigator.usb.requestDevice({
+    filters: [{ vendorId: 0x2341 }]   // Arduino vendor ID
+  });
+
+  await device.open();
+  await device.selectConfiguration(1);
+  await device.claimInterface(2);
+  writer = device.transferOut.bind(device, 4);
+
+  console.log("Connected to Arduino via WebUSB");
+};
+
+// Initialize webcam + TM model
+async function init() {
+  const modelURL = URL + "model.json";
+  const metadataURL = URL + "metadata.json";
+
+  model = await tmImage.load(modelURL, metadataURL);
+  maxPredictions = model.getTotalClasses();
+
+  const flip = true;
+  webcam = new tmImage.Webcam(200, 200, flip);
+  await webcam.setup();
+  await webcam.play();
+  window.requestAnimationFrame(loop);
+
+  document.getElementById("webcam-container").appendChild(webcam.canvas);
+  labelContainer = document.getElementById("label-container");
+
+  for (let i = 0; i < maxPredictions; i++) {
+    labelContainer.appendChild(document.createElement("div"));
+  }
+}
+
+async function loop() {
+  webcam.update();
+  await predict();
+  window.requestAnimationFrame(loop);
+}
+
+let lastSent = 0;
+const cooldown = 800; // ms between sending commands
+
+async function predict() {
+  const prediction = await model.predict(webcam.canvas);
+
+  // Display predictions
+  prediction.forEach((p, i) => {
+    labelContainer.childNodes[i].innerHTML =
+      `${p.className}: ${p.probability.toFixed(2)}`;
+  });
+
+  // Find the highest-probability class
+  let best = prediction.reduce((max, p) =>
+    p.probability > max.probability ? p : max
+  );
+
+  // Confidence threshold (tune this)
+  if (best.probability < 0.85) return;
+
+  // Cooldown (prevents sending 60 times/sec)
+  let now = Date.now();
+  if (now - lastSent < cooldown) return;
+  lastSent = now;
+
+  // Send commands based on className
+  if (best.className === "Cereal") {
+    console.log("Sending 1");
+    writer(new Uint8Array([1]));
+  }
+  else if (best.className === "Marshmallow") {
+    console.log("Sending 2");
+    writer(new Uint8Array([2]));
+  }
+}
+</script>
+</body>
+</html>
