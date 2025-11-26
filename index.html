@@ -1,110 +1,66 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>My TM + Arduino Page</title>
+  <title>TM + Arduino</title>
+
   <!-- TensorFlow.js -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-  <!-- Teachable Machine Image library -->
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest"></script>
-</head>
 
+  <!-- Teachable Machine Image Library -->
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest"></script>
+
+</head>
 <body>
 
-<h2>Teachable Machine + Arduino (WebUSB)</h2>
+  <h1>Machine Learning Test</h1>
+  <button onclick="init()">Start Model</button>
 
-<button id="connect">Connect to Arduino</button>
-<button onclick="init()">Start Model</button>
-
-<div id="webcam-container"></div>
-<div id="label-container"></div>
+  <div id="webcam-container"></div>
+  <div id="label-container"></div>
 
 <script>
-const URL = "./my_model/";
+  // CHANGE THIS to your Teachable Machine hosted URL:
+  const URL = "./my_model/";   // <-- OR hosted TM URL ending in /
 
-let model, webcam;
-let labelContainer, maxPredictions;
+  let model, webcam, labelContainer, maxPredictions;
 
-// WebUSB variables
-let device;
-let writer;
+  async function init() {
+      const modelURL = URL + "model.json";
+      const metadataURL = URL + "metadata.json";
 
-// Connect button event
-document.getElementById("connect").onclick = async () => {
-  device = await navigator.usb.requestDevice({
-    filters: [{ vendorId: 0x2341 }]   // Arduino vendor ID
-  });
+      // LOAD TM MODEL
+      model = await tmImage.load(modelURL, metadataURL);
+      maxPredictions = model.getTotalClasses();
 
-  await device.open();
-  await device.selectConfiguration(1);
-  await device.claimInterface(2);
-  writer = device.transferOut.bind(device, 4);
+      // SETUP WEBCAM
+      const flip = true;
+      webcam = new tmImage.Webcam(200, 200, flip);
+      await webcam.setup();
+      await webcam.play();
+      window.requestAnimationFrame(loop);
 
-  console.log("Connected to Arduino via WebUSB");
-};
-
-// Initialize webcam + TM model
-async function init() {
-  const modelURL = URL + "model.json";
-  const metadataURL = URL + "metadata.json";
-
-  model = await tmImage.load(modelURL, metadataURL);
-  maxPredictions = model.getTotalClasses();
-
-  const flip = true;
-  webcam = new tmImage.Webcam(200, 200, flip);
-  await webcam.setup();
-  await webcam.play();
-  window.requestAnimationFrame(loop);
-
-  document.getElementById("webcam-container").appendChild(webcam.canvas);
-  labelContainer = document.getElementById("label-container");
-
-  for (let i = 0; i < maxPredictions; i++) {
-    labelContainer.appendChild(document.createElement("div"));
+      // SHOW WEBCAM + LABELS
+      document.getElementById("webcam-container").appendChild(webcam.canvas);
+      labelContainer = document.getElementById("label-container");
+      for (let i = 0; i < maxPredictions; i++) {
+          labelContainer.appendChild(document.createElement("div"));
+      }
   }
-}
 
-async function loop() {
-  webcam.update();
-  await predict();
-  window.requestAnimationFrame(loop);
-}
-
-let lastSent = 0;
-const cooldown = 800; // ms between sending commands
-
-async function predict() {
-  const prediction = await model.predict(webcam.canvas);
-
-  // Display predictions
-  prediction.forEach((p, i) => {
-    labelContainer.childNodes[i].innerHTML =
-      `${p.className}: ${p.probability.toFixed(2)}`;
-  });
-
-  // Find the highest-probability class
-  let best = prediction.reduce((max, p) =>
-    p.probability > max.probability ? p : max
-  );
-
-  // Confidence threshold (tune this)
-  if (best.probability < 0.85) return;
-
-  // Cooldown (prevents sending 60 times/sec)
-  let now = Date.now();
-  if (now - lastSent < cooldown) return;
-  lastSent = now;
-
-  // Send commands based on className
-  if (best.className === "Cereal") {
-    console.log("Sending 1");
-    writer(new Uint8Array([1]));
+  async function loop() {
+      webcam.update();
+      await predict();
+      window.requestAnimationFrame(loop);
   }
-  else if (best.className === "Marshmallow") {
-    console.log("Sending 2");
-    writer(new Uint8Array([2]));
+
+  async function predict() {
+      const prediction = await model.predict(webcam.canvas);
+      for (let i = 0; i < maxPredictions; i++) {
+          labelContainer.childNodes[i].innerHTML =
+              prediction[i].className + ": " + prediction[i].probability.toFixed(2);
+      }
   }
-}
 </script>
+
 </body>
 </html>
